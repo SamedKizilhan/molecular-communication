@@ -68,7 +68,13 @@ class MobileChannel:
         tau_eff = self.tau * (r / self.r_ref) ** 2
         return float(np.exp(-Tb / max(tau_eff, 1e-10)))
 
-    def simulate(self, bits: np.ndarray, Tb: float) -> np.ndarray:
+    def simulate(
+        self,
+        bits: np.ndarray,
+        Tb: float,
+        smart_tx: bool = False,
+        gamma: float = 0.8,
+    ) -> np.ndarray:
         """
         Simulate the mobile MC channel.
 
@@ -76,6 +82,12 @@ class MobileChannel:
         ----------
         bits : (n,) int array of 0/1
         Tb   : symbol duration in seconds
+        smart_tx : bool
+            If True, the transmitter adjusts its emission strength based on
+            the estimated ISI residual from its own past transmissions.
+            For bit=1, emission weight = max(1-γ*baseline, min_w) instead of 1.
+        gamma : float
+            Aggressiveness of smart-TX adjustment (0 = no adjustment).
 
         Returns
         -------
@@ -94,11 +106,35 @@ class MobileChannel:
 
         rho_arr = np.array([self._rho(Tb, rk) for rk in r])
 
+        # --- Emission weights (smart TX adjusts per-symbol) ---------------
+        # emission[k] is the fraction of N_molecules actually emitted for
+        # bit k.  With smart_tx=False every bit=1 emits weight 1.0.
+        emission = np.ones(n, dtype=float)
+
+        if smart_tx:
+            min_w = 0.1          # never go below 10 % of base emission
+            for k in range(n):
+                if bits[k] == 1 and k > 0:
+                    # TX estimates ISI baseline from its own past emissions
+                    # using the *reference* rho (TX knows Tb and τ but not
+                    # the exact instantaneous r, so it uses r_ref).
+                    rho_ref = self._rho(Tb, self.r_ref)
+                    baseline = 0.0
+                    for j in range(k):
+                        baseline += bits[j] * emission[j] * (rho_ref ** (k - j))
+                    # Normalize baseline to [0, 1] range
+                    peak_ref = 1.0 / (1.0 - rho_ref) if rho_ref < 0.9999 else float(k)
+                    baseline /= max(peak_ref, 1e-10)
+                    emission[k] = max(min_w, 1.0 - gamma * baseline)
+
+        # --- Channel propagation ------------------------------------------
         for k in range(n):
             rho_k = rho_arr[k]
             lags = np.arange(k + 1)          # lag = k - j for j=0..k
             weights = rho_k ** lags[::-1]     # weights[j] = rho^(k-j)
-            raw = float(bits[:k + 1] @ weights)
+            # bits modulated by emission weight
+            effective = bits[:k + 1].astype(float) * emission[:k + 1]
+            raw = float(effective @ weights)
             # Normalize by all-1s geometric series
             peak = 1.0 / (1.0 - rho_k) if rho_k < 0.9999 else float(k + 1)
             raw /= peak
