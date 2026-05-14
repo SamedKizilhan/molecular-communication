@@ -7,6 +7,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader, TensorDataset
+from tqdm import tqdm
 from .base import BaseDetector
 
 
@@ -27,7 +28,7 @@ def _train(model, X_t, y_t, epochs=30, lr=1e-3, batch=64):
     ds = TensorDataset(X_t, y_t)
     loader = DataLoader(ds, batch_size=batch, shuffle=True)
     model.train()
-    for _ in range(epochs):
+    for _ in tqdm(range(epochs), desc=f"Training {model.__class__.__name__}", leave=False):
         for xb, yb in loader:
             opt.zero_grad()
             loss_fn(model(xb).squeeze(), yb).backward()

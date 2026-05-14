@@ -27,13 +27,15 @@ import numpy as np
 
 DEFAULT_PARAMS = {
     "N_molecules": 2000,
-    "D_M": 1.01e-9,      # m^2/s
-    "D_T": 4.74e-14,     # m^2/s  (TX mobility)
-    "D_R": 2.31e-12,     # m^2/s  (RX mobility)
+    "D_M": 1.01e-10,     # m^2/s (Mucin environment, ~10x slower diffusion)
+    "D_T": 4.74e-15,     # m^2/s (TX mobility in mucin)
+    "D_R": 2.31e-13,     # m^2/s (RX mobility in mucin)
     "r0": 5e-6,          # RX radius (m)
     "domain_size": 100e-6,   # half-side of cubic domain (m)
     "r_ref": 20e-6,      # reference TX–RX distance (m)
     "noise_std": 0.03,   # additive Gaussian noise std
+    "k_deg": 0.1,        # 1/s (Enzymatic degradation rate, half-life ~ 6.9s)
+    "flow_vel": 1e-6,    # m/s (Mucociliary clearance background flow)
 }
 
 
@@ -56,6 +58,8 @@ class MobileChannel:
         self.L = p["domain_size"]
         self.r_ref = p["r_ref"]
         self.noise_std = p["noise_std"]
+        self.k_deg = p["k_deg"]
+        self.flow_vel = p["flow_vel"]
         # τ = domain diffusion relaxation time
         self.tau = self.L ** 2 / self.D_M
         self.rng = np.random.default_rng(seed)
@@ -63,10 +67,20 @@ class MobileChannel:
     # ------------------------------------------------------------------
 
     def _rho(self, Tb: float, r: float) -> float:
-        """Per-symbol ISI decay factor at distance r."""
+        """Per-symbol ISI decay factor at distance r, including degradation."""
         # Effective τ scales as r² (further TX → faster dispersion away)
-        tau_eff = self.tau * (r / self.r_ref) ** 2
-        return float(np.exp(-Tb / max(tau_eff, 1e-10)))
+        # Flow velocity makes molecules drift away from optimal communication zone
+        Peclet = (self.flow_vel * self.L) / self.D_M
+        flow_penalty = 1.0 + (Peclet / 100.0) # Flow artificially speeds up channel clearance
+        
+        tau_eff = self.tau * (r / self.r_ref) ** 2 / flow_penalty
+        
+        # Base diffusion-bounded dispersion
+        base_decay = np.exp(-Tb / max(tau_eff, 1e-10))
+        # Enzymatic degradation directly destroys molecules over time e^(-k*t)
+        deg_decay = np.exp(-self.k_deg * Tb)
+        
+        return float(base_decay * deg_decay)
 
     def simulate(
         self,
