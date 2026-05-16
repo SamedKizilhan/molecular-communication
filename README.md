@@ -87,3 +87,7 @@ Lower Tb → larger ρ → more ISI → detectors approach random guessing.
 At Tb=10s (severe ISI): all detectors ~55–70% accuracy.
 At Tb=100s (moderate ISI): RC-ISI ~87%, Hybrid ~97%, classical ~93–96%.
 At Tb=200s (low ISI): most learned models converge to >95%.
+
+## Use Cases
+
+- **Smart Transmitter, Dumb Receiver**: In this scenario, complex processing (e.g., machine learning models, pre-coding, or ISI cancellation) is performed at the transmitter. The receiver uses a simple, low-complexity detector (like `Peak-Fixed` or `Adaptive-EMA`) to decode the signal. This architecture is ideal for nanonetworks where the receiver (e.g., in-body nanoscale devices) has extreme energy, hardware, and computational limitations, while the transmitter (e.g., external gateway) has access to abundant resources.
